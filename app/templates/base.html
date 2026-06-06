@@ -76,6 +76,11 @@
         color: var(--accent-dark);
       }
 
+      .button[disabled] {
+        cursor: wait;
+        opacity: 0.72;
+      }
+
       .panel {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -203,6 +208,24 @@
         text-align: center;
       }
 
+      .notice {
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        font-weight: 800;
+      }
+
+      .notice.good {
+        border-color: #86efac;
+        background: #f0fdf4;
+        color: var(--good);
+      }
+
+      .notice.bad {
+        border-color: #fecaca;
+        background: #fef2f2;
+        color: var(--bad);
+      }
+
       .stack {
         display: grid;
         gap: 8px;
@@ -245,5 +268,15 @@
     <main class="shell">
       {% block content %}{% endblock %}
     </main>
+    <script>
+      document.querySelectorAll("form[data-pending-label]").forEach((form) => {
+        form.addEventListener("submit", () => {
+          const button = form.querySelector("button[type='submit']");
+          if (!button) return;
+          button.textContent = form.dataset.pendingLabel;
+          button.disabled = true;
+        });
+      });
+    </script>
   </body>
 </html>

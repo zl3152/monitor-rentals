@@ -6,8 +6,19 @@
     <h1>Monitor Rentals</h1>
     <p class="subtitle">Apartments under ${{ "{:,}".format(max_rent) }} in {{ target_cities | join(", ") }}.</p>
   </div>
-  <a class="button" href="/board/{{ token }}/sources/new">Add source URL</a>
+  <div class="stack">
+    <a class="button" href="/board/{{ token }}/sources/new">Add source URL</a>
+    <form method="post" action="/board/{{ token }}/test-email">
+      <button class="button secondary" type="submit">Send test email</button>
+    </form>
+  </div>
 </header>
+
+{% if email_test == "sent" %}
+  <section class="panel notice good">Test email sent.</section>
+{% elif email_test == "failed" %}
+  <section class="panel notice bad">Test email failed. Check SMTP environment variables and Render logs.</section>
+{% endif %}
 
 <div class="section-header">
   <div>
@@ -39,12 +50,26 @@
             </td>
             <td>{{ source.city or "Unknown" }}</td>
             <td>
-              <span class="badge {{ 'good' if source.is_active else 'bad' }}">
-                {{ "Active" if source.is_active else "Paused" }}
-              </span>
+              <div class="stack">
+                <span class="badge {{ 'good' if source.is_active else 'bad' }}">
+                  {{ "Active" if source.is_active else "Paused" }}
+                </span>
+                {% set check_status = source.last_check_status or "idle" %}
+                {% set check_class = "good" if check_status == "succeeded" else "bad" if check_status == "failed" else "warn" if check_status in ["queued", "running"] else "" %}
+                <span class="badge {{ check_class }}">
+                  {{ check_status | replace("_", " ") | title }}
+                </span>
+                {% if source.last_check_error %}
+                  <span class="meta">{{ source.last_check_error }}</span>
+                {% endif %}
+              </div>
             </td>
             <td>
-              {% if source.last_checked_at %}
+              {% if source.last_check_status in ["queued", "running"] and source.last_check_started_at %}
+                Started {{ source.last_check_started_at.strftime("%Y-%m-%d %H:%M") }}
+              {% elif source.last_check_finished_at %}
+                Finished {{ source.last_check_finished_at.strftime("%Y-%m-%d %H:%M") }}
+              {% elif source.last_checked_at %}
                 {{ source.last_checked_at.strftime("%Y-%m-%d %H:%M") }}
               {% else %}
                 <span class="meta">Not checked yet</span>
@@ -52,7 +77,7 @@
             </td>
             <td>
               <div class="stack">
-                <form method="post" action="/board/{{ token }}/sources/{{ source.id }}/check">
+                <form method="post" action="/board/{{ token }}/sources/{{ source.id }}/check" data-pending-label="Queued...">
                   <button class="button secondary" type="submit">Check now</button>
                 </form>
                 <a href="/board/{{ token }}/sources/{{ source.id }}/edit">Edit</a>

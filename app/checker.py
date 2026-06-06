@@ -9,7 +9,21 @@ from app.parser import ParsedUnit, parse_source_url
 
 
 def check_source(db: Session, source: TrackedSource) -> int:
-    parsed_units = parse_source_url(source.url)
+    now = datetime.utcnow()
+    source.last_check_status = "running"
+    source.last_check_error = ""
+    source.last_check_started_at = now
+    db.commit()
+
+    try:
+        parsed_units = parse_source_url(source.url)
+    except Exception as exc:
+        source.last_check_status = "failed"
+        source.last_check_error = str(exc)[:1000]
+        source.last_check_finished_at = datetime.utcnow()
+        db.commit()
+        return 0
+
     now = datetime.utcnow()
     seen_external_ids = set()
     changes = []
@@ -62,6 +76,9 @@ def check_source(db: Session, source: TrackedSource) -> int:
             unit.is_available = False
 
     source.last_checked_at = now
+    source.last_check_status = "succeeded"
+    source.last_check_error = ""
+    source.last_check_finished_at = now
     if changes:
         source.updated_at = now
     db.commit()

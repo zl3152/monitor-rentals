@@ -41,6 +41,10 @@ class TrackedSource(Base):
     city: Mapped[str] = mapped_column(String(120), default="")
     notes: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_check_status: Mapped[str] = mapped_column(String(40), default="idle")
+    last_check_error: Mapped[str] = mapped_column(Text, default="")
+    last_check_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_check_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(

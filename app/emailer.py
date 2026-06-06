@@ -31,6 +31,25 @@ def send_change_digest(changes: list[UnitChange]) -> bool:
     return True
 
 
+def send_test_email() -> None:
+    if not email_is_configured():
+        raise RuntimeError("Email is not fully configured.")
+
+    message = EmailMessage()
+    message["From"] = SMTP_USERNAME
+    message["To"] = ", ".join(NOTIFY_EMAILS)
+    message["Subject"] = "Rental Tracker: test email"
+    message.set_content(
+        "This is a test email from Monitor Rentals.\n\n"
+        f"Dashboard: {APP_BASE_URL}\n"
+    )
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+        smtp.starttls()
+        smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
+        smtp.send_message(message)
+
+
 def _build_digest_body(changes: list[UnitChange]) -> str:
     lines = ["Rental Tracker detected changes:", ""]
     for change in changes:

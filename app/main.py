@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,13 +9,15 @@ from starlette.requests import Request
 
 from app.config import BOARD_TOKEN, MAX_RENT, TARGET_CITIES
 from app.checker import check_source_by_id
-from app.database import Base, SessionLocal, engine, get_db
+from app.database import Base, SessionLocal, engine, get_db, run_startup_migrations
+from app.emailer import send_test_email
 from app.fit import calculate_fit_label
 from app.models import DetectedUnit, Property, TrackedSource, UnitChange
 from app.scheduler import create_scheduler
 
 
 Base.metadata.create_all(bind=engine)
+run_startup_migrations()
 
 
 @asynccontextmanager
@@ -63,6 +66,7 @@ def dashboard(
     request: Request,
     status: str = "",
     fit: str = "",
+    email_test: str = "",
     db: Session = Depends(get_db),
 ):
     require_board(token)
@@ -98,10 +102,22 @@ def dashboard(
             "statuses": STATUSES,
             "selected_status": status,
             "selected_fit": fit,
+            "email_test": email_test,
             "max_rent": MAX_RENT,
             "target_cities": sorted(city.title() for city in TARGET_CITIES),
         },
     )
+
+
+@app.post("/board/{token}/test-email", response_class=HTMLResponse)
+def test_email(token: str):
+    require_board(token)
+    try:
+        send_test_email()
+        result = "sent"
+    except Exception:
+        result = "failed"
+    return RedirectResponse(url=board_url(token, f"?email_test={result}"), status_code=303)
 
 
 @app.get("/board/{token}/properties/new", response_class=HTMLResponse)
@@ -314,6 +330,10 @@ def check_source_now(
     source = db.get(TrackedSource, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    source.last_check_status = "queued"
+    source.last_check_error = ""
+    source.last_check_started_at = datetime.utcnow()
+    db.commit()
     background_tasks.add_task(_check_source_in_background, source_id)
     return RedirectResponse(url=board_url(token), status_code=303)
 
