@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+  <div>
+    <h1>{% if property %}Edit property{% else %}Add property{% endif %}</h1>
+    <p class="subtitle">Manual tracking first. URL auto-fill comes next.</p>
+  </div>
+  <a class="button secondary" href="/board/{{ token }}">Back to board</a>
+</header>
+
+{% if property %}
+  {% set action = "/board/" ~ token ~ "/properties/" ~ property.id %}
+{% else %}
+  {% set action = "/board/" ~ token ~ "/properties" %}
+{% endif %}
+
+<form class="panel" method="post" action="{{ action }}">
+  <div class="form-grid">
+    <label class="full">
+      Listing URL
+      <input name="url" type="url" required value="{{ property.url if property else '' }}" placeholder="https://example-property-manager.com/listing">
+    </label>
+
+    <label>
+      Property name
+      <input name="property_name" value="{{ property.property_name if property else '' }}">
+    </label>
+
+    <label>
+      Address
+      <input name="address" value="{{ property.address if property else '' }}">
+    </label>
+
+    <label>
+      City
+      <select name="city">
+        {% set current_city = property.city if property else "" %}
+        <option value="">Unknown</option>
+        {% for city in cities %}
+          <option value="{{ city }}" {% if current_city == city %}selected{% endif %}>{{ city }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Rent
+      <input name="rent" type="number" min="0" step="1" value="{{ property.rent if property and property.rent else '' }}" placeholder="5500">
+    </label>
+
+    <label>
+      Bedrooms
+      <input name="beds" type="number" min="0" step="0.5" value="{{ property.beds if property and property.beds is not none else '' }}">
+    </label>
+
+    <label>
+      Bathrooms
+      <input name="baths" type="number" min="0" step="0.5" value="{{ property.baths if property and property.baths is not none else '' }}">
+    </label>
+
+    <label>
+      Property type
+      <select name="property_type">
+        {% set current_type = property.property_type if property else "Apartment" %}
+        {% for option in property_types %}
+          <option value="{{ option }}" {% if current_type == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Amenities
+      <select name="has_amenities">
+        {% set amenities = property.has_amenities if property else none %}
+        <option value="" {% if amenities is none %}selected{% endif %}>Unknown</option>
+        <option value="yes" {% if amenities is sameas true %}selected{% endif %}>Yes</option>
+        <option value="no" {% if amenities is sameas false %}selected{% endif %}>No</option>
+      </select>
+    </label>
+
+    <label>
+      Status
+      <select name="status">
+        {% set current_status = property.status if property else "New" %}
+        {% for status in statuses %}
+          <option value="{{ status }}" {% if current_status == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="full">
+      Notes
+      <textarea name="notes" placeholder="Tour notes, commute thoughts, parking questions...">{{ property.notes if property else '' }}</textarea>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button class="button" type="submit">Save property</button>
+    <a class="button secondary" href="/board/{{ token }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

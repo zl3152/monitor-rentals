@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+  <div>
+    <h1>{% if source %}Edit source{% else %}Add source URL{% endif %}</h1>
+    <p class="subtitle">Use apartment community availability pages or property manager pages.</p>
+  </div>
+  <a class="button secondary" href="/board/{{ token }}">Back to board</a>
+</header>
+
+{% if source %}
+  {% set action = "/board/" ~ token ~ "/sources/" ~ source.id %}
+{% else %}
+  {% set action = "/board/" ~ token ~ "/sources" %}
+{% endif %}
+
+<form class="panel" method="post" action="{{ action }}">
+  <div class="form-grid">
+    <label class="full">
+      Source URL
+      <input name="url" type="url" required value="{{ source.url if source else '' }}" placeholder="https://property-manager.com/apartments/availability">
+    </label>
+
+    <label>
+      Property or community name
+      <input name="name" value="{{ source.name if source else '' }}" placeholder="Example Apartments">
+    </label>
+
+    <label>
+      City
+      <select name="city">
+        {% set current_city = source.city if source else "" %}
+        <option value="">Unknown</option>
+        {% for city in cities %}
+          <option value="{{ city }}" {% if current_city == city %}selected{% endif %}>{{ city }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Monitoring
+      <select name="is_active">
+        {% set active = source.is_active if source else true %}
+        <option value="yes" {% if active is sameas true %}selected{% endif %}>Active</option>
+        <option value="no" {% if active is sameas false %}selected{% endif %}>Paused</option>
+      </select>
+    </label>
+
+    <label class="full">
+      Notes
+      <textarea name="notes" placeholder="Amenities, commute notes, special leasing details...">{{ source.notes if source else '' }}</textarea>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button class="button" type="submit">Save source</button>
+    <a class="button secondary" href="/board/{{ token }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header>
+  <div>
+    <h1>Monitor Rentals</h1>
+    <p class="subtitle">Apartments under ${{ "{:,}".format(max_rent) }} in {{ target_cities | join(", ") }}.</p>
+  </div>
+  <a class="button" href="/board/{{ token }}/sources/new">Add source URL</a>
+</header>
+
+<div class="section-header">
+  <div>
+    <h2>Tracked source pages</h2>
+    <div class="meta">Apartment community or property manager pages to check on a schedule.</div>
+  </div>
+  <a class="button secondary" href="/board/{{ token }}/sources/new">Add source</a>
+</div>
+
+<section class="panel">
+  {% if sources %}
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>City</th>
+          <th>Status</th>
+          <th>Last checked</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for source in sources %}
+          <tr>
+            <td>
+              <div class="name">{{ source.name or "Unnamed source" }}</div>
+              <div><a href="{{ source.url }}" target="_blank" rel="noreferrer">Open source page</a></div>
+              {% if source.notes %}<div class="meta">{{ source.notes }}</div>{% endif %}
+            </td>
+            <td>{{ source.city or "Unknown" }}</td>
+            <td>
+              <span class="badge {{ 'good' if source.is_active else 'bad' }}">
+                {{ "Active" if source.is_active else "Paused" }}
+              </span>
+            </td>
+            <td>
+              {% if source.last_checked_at %}
+                {{ source.last_checked_at.strftime("%Y-%m-%d %H:%M") }}
+              {% else %}
+                <span class="meta">Not checked yet</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="stack">
+                <form method="post" action="/board/{{ token }}/sources/{{ source.id }}/check">
+                  <button class="button secondary" type="submit">Check now</button>
+                </form>
+                <a href="/board/{{ token }}/sources/{{ source.id }}/edit">Edit</a>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">Add an apartment community availability page. The monitor will use these pages to detect units later.</div>
+  {% endif %}
+</section>
+
+<div class="section-header">
+  <div>
+    <h2>Detected available units</h2>
+    <div class="meta">These will be populated by the checker once URL parsing is added.</div>
+  </div>
+</div>
+
+<section class="panel">
+  {% if units %}
+    <table>
+      <thead>
+        <tr>
+          <th>Unit</th>
+          <th>Rent</th>
+          <th>Bed/Bath</th>
+          <th>Available</th>
+          <th>Fit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for unit in units %}
+          <tr>
+            <td>
+              <div class="name">{{ unit.floor_plan or unit.unit_name or "Unnamed unit" }}</div>
+              <div class="meta">{{ unit.source.name or "Source" }}{% if unit.unit_name %} | {{ unit.unit_name }}{% endif %}</div>
+              {% if unit.unit_url %}<div><a href="{{ unit.unit_url }}" target="_blank" rel="noreferrer">Open unit</a></div>{% endif %}
+            </td>
+            <td>
+              {% if unit.rent %}
+                ${{ "{:,}".format(unit.rent) }}
+              {% else %}
+                <span class="meta">Unknown</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if unit.beds and unit.baths %}
+                {{ unit.beds | int if unit.beds == unit.beds | int else unit.beds }}b / {{ unit.baths | int if unit.baths == unit.baths | int else unit.baths }}b
+              {% else %}
+                <span class="meta">Unknown</span>
+              {% endif %}
+            </td>
+            <td>{{ unit.available_date or "Unknown" }}</td>
+            <td>
+              {% set fit_class = "good" if unit.fit_label == "Great fit" else "warn" if unit.fit_label in ["Possible fit", "Needs review"] else "bad" %}
+              <span class="badge {{ fit_class }}">{{ unit.fit_label }}</span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">No units detected yet. Next we will teach the checker to parse your actual source pages.</div>
+  {% endif %}
+</section>
+
+<div class="section-header">
+  <div>
+    <h2>Recent changes</h2>
+    <div class="meta">New units, rent changes, availability changes, and fit changes detected by checks.</div>
+  </div>
+</div>
+
+<section class="panel">
+  {% if recent_changes %}
+    <table>
+      <thead>
+        <tr>
+          <th>Change</th>
+          <th>Detected</th>
+          <th>Email</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for change in recent_changes %}
+          <tr>
+            <td>
+              <div class="name">{{ change.source.name or "Tracked source" }}</div>
+              <div>{{ change.message }}</div>
+              {% if change.unit and change.unit.unit_url %}
+                <div><a href="{{ change.unit.unit_url }}" target="_blank" rel="noreferrer">Open unit</a></div>
+              {% endif %}
+            </td>
+            <td>{{ change.detected_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td>
+              {% if change.emailed_at %}
+                <span class="badge good">Sent</span>
+              {% else %}
+                <span class="badge warn">Not sent</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">No changes recorded yet. Run a source check to start building history.</div>
+  {% endif %}
+</section>
+
+<div class="section-header">
+  <div>
+    <h2>Manual properties</h2>
+    <div class="meta">Optional scratchpad for specific listings you already know about.</div>
+  </div>
+  <a class="button secondary" href="/board/{{ token }}/properties/new">Add manual property</a>
+</div>
+
+<section class="panel toolbar">
+  <form class="filters" method="get">
+    <label>
+      Status
+      <select name="status">
+        <option value="">All statuses</option>
+        {% for status in statuses %}
+          <option value="{{ status }}" {% if selected_status == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Fit
+      <select name="fit">
+        <option value="">All fits</option>
+        {% for label in ["Great fit", "Possible fit", "Needs review", "Not a fit"] %}
+          <option value="{{ label }}" {% if selected_fit == label %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button secondary" type="submit">Filter</button>
+  </form>
+  <div class="meta">{{ properties | length }} properties</div>
+</section>
+
+<section class="panel">
+  {% if properties %}
+    <table>
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th>Rent</th>
+          <th>Bed/Bath</th>
+          <th>Status</th>
+          <th>Fit</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for property in properties %}
+          <tr>
+            <td>
+              <div class="name">{{ property.property_name or "Untitled property" }}</div>
+              <div class="meta">{{ property.address }}{% if property.city %} | {{ property.city }}{% endif %}</div>
+              <div><a href="{{ property.url }}" target="_blank" rel="noreferrer">Open listing</a></div>
+            </td>
+            <td>
+              {% if property.rent %}
+                ${{ "{:,}".format(property.rent) }}
+              {% else %}
+                <span class="meta">Unknown</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if property.beds and property.baths %}
+                {{ property.beds | int if property.beds == property.beds | int else property.beds }}b / {{ property.baths | int if property.baths == property.baths | int else property.baths }}b
+              {% else %}
+                <span class="meta">Unknown</span>
+              {% endif %}
+            </td>
+            <td><span class="badge">{{ property.status }}</span></td>
+            <td>
+              {% set fit_class = "good" if property.fit_label == "Great fit" else "warn" if property.fit_label in ["Possible fit", "Needs review"] else "bad" %}
+              <span class="badge {{ fit_class }}">{{ property.fit_label }}</span>
+            </td>
+            <td><a href="/board/{{ token }}/properties/{{ property.id }}/edit">Edit</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">No properties yet. Add the first listing URL and fill in what you know.</div>
+  {% endif %}
+</section>
+{% endblock %}
