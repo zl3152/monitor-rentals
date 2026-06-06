@@ -65,8 +65,8 @@ Recommended Render settings:
 
 - Build command: `pip install -r requirements.txt`
 - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Persistent disk mount path: `/var/data`
-- Environment variable: `DATA_DIR=/var/data`
+- Persistent disk mount path: `/opt/render/project/src/data`
+- Environment variable: `DATA_DIR=/opt/render/project/src/data`
 
 Set these Render environment variables manually:
 
