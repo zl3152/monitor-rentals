@@ -1,14 +1,14 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Form, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.config import BOARD_TOKEN, MAX_RENT, TARGET_CITIES
-from app.checker import check_source
-from app.database import Base, engine, get_db
+from app.checker import check_source_by_id
+from app.database import Base, SessionLocal, engine, get_db
 from app.fit import calculate_fit_label
 from app.models import DetectedUnit, Property, TrackedSource, UnitChange
 from app.scheduler import create_scheduler
@@ -307,14 +307,23 @@ def update_source(
 def check_source_now(
     token: str,
     source_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     require_board(token)
     source = db.get(TrackedSource, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
-    check_source(db, source)
+    background_tasks.add_task(_check_source_in_background, source_id)
     return RedirectResponse(url=board_url(token), status_code=303)
+
+
+def _check_source_in_background(source_id: int) -> None:
+    db = SessionLocal()
+    try:
+        check_source_by_id(db, source_id)
+    finally:
+        db.close()
 
 
 def _parse_bool(value: str) -> bool | None:

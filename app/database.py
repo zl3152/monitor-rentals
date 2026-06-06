@@ -4,7 +4,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from app.config import DATA_DIR, DATABASE_URL
 
 
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
     DATABASE_URL,
@@ -23,4 +23,3 @@ def get_db():
         yield db
     finally:
         db.close()
-

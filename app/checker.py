@@ -65,8 +65,12 @@ def check_source(db: Session, source: TrackedSource) -> int:
     if changes:
         source.updated_at = now
     db.commit()
-    if changes and send_change_digest(changes):
-        db.commit()
+    if changes:
+        try:
+            if send_change_digest(changes):
+                db.commit()
+        except Exception:
+            pass
     return len(parsed_units)
 
 
@@ -76,6 +80,13 @@ def check_all_active_sources(db: Session) -> int:
     for source in sources:
         total += check_source(db, source)
     return total
+
+
+def check_source_by_id(db: Session, source_id: int) -> int:
+    source = db.get(TrackedSource, source_id)
+    if source is None:
+        return 0
+    return check_source(db, source)
 
 
 def _apply_parsed_unit(
