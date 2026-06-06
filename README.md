@@ -71,6 +71,7 @@ Recommended Render settings:
 Set these Render environment variables manually:
 
 ```text
+PYTHON_VERSION=3.13
 BOARD_TOKEN=<your-board-token>
 APP_BASE_URL=https://<your-render-service>.onrender.com/board/<your-board-token>
 SMTP_HOST=smtp.gmail.com

@@ -12,6 +12,8 @@ services:
     envVars:
       - key: DATA_DIR
         value: /opt/render/project/src/data
+      - key: PYTHON_VERSION
+        value: "3.13"
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
