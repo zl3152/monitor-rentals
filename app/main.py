@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -67,6 +68,7 @@ def dashboard(
     status: str = "",
     fit: str = "",
     email_test: str = "",
+    email_error: str = "",
     db: Session = Depends(get_db),
 ):
     require_board(token)
@@ -103,6 +105,7 @@ def dashboard(
             "selected_status": status,
             "selected_fit": fit,
             "email_test": email_test,
+            "email_error": email_error,
             "max_rent": MAX_RENT,
             "target_cities": sorted(city.title() for city in TARGET_CITIES),
         },
@@ -114,10 +117,13 @@ def test_email(token: str):
     require_board(token)
     try:
         send_test_email()
-        result = "sent"
-    except Exception:
-        result = "failed"
-    return RedirectResponse(url=board_url(token, f"?email_test={result}"), status_code=303)
+        return RedirectResponse(url=board_url(token, "?email_test=sent"), status_code=303)
+    except Exception as exc:
+        error = quote(str(exc)[:240])
+        return RedirectResponse(
+            url=board_url(token, f"?email_test=failed&email_error={error}"),
+            status_code=303,
+        )
 
 
 @app.get("/board/{token}/properties/new", response_class=HTMLResponse)

@@ -17,7 +17,9 @@
 {% if email_test == "sent" %}
   <section class="panel notice good">Test email sent.</section>
 {% elif email_test == "failed" %}
-  <section class="panel notice bad">Test email failed. Check SMTP environment variables and Render logs.</section>
+  <section class="panel notice bad">
+    Test email failed{% if email_error %}: {{ email_error }}{% else %}. Check SMTP environment variables and Render logs.{% endif %}
+  </section>
 {% endif %}
 
 <div class="section-header">
