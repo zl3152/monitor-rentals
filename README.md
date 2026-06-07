@@ -79,6 +79,19 @@ SMTP_PORT=587
 SMTP_USERNAME=<your-gmail-address>
 SMTP_PASSWORD=<your-gmail-app-password>
 NOTIFY_EMAILS=<you@example.com>,<roommate@example.com>
+RESEND_API_KEY=<your-resend-api-key>
+EMAIL_FROM=Rental Tracker <onboarding@resend.dev>
 ```
 
 Do not upload `.env` to GitHub. Render stores production secrets as environment variables.
+
+Render can block outbound SMTP ports on some services. For hosted email alerts,
+prefer Resend over Gmail SMTP:
+
+```text
+RESEND_API_KEY=<your-resend-api-key>
+EMAIL_FROM=Rental Tracker <onboarding@resend.dev>
+NOTIFY_EMAILS=<you@example.com>,<roommate@example.com>
+```
+
+Gmail SMTP can still be used locally.

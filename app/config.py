@@ -29,3 +29,5 @@ NOTIFY_EMAILS = [
     for email in os.getenv("NOTIFY_EMAILS", "").split(",")
     if email.strip()
 ]
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USERNAME)
