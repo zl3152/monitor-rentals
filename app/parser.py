@@ -47,12 +47,19 @@ def parse_lume(url: str) -> list[ParsedUnit]:
 
 def parse_anton_menlo(url: str) -> list[ParsedUnit]:
     floorplans_url = "https://www.rentcafe.com/apartments/ca/menlo-park/anton-menlo/default.aspx"
+    proxy_url = f"https://r.jina.ai/http://r.jina.ai/http://{floorplans_url}"
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
     }
     with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
-        listing_response = client.get(floorplans_url)
-        listing_response.raise_for_status()
+        try:
+            listing_response = client.get(floorplans_url)
+            listing_response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 403:
+                raise
+            listing_response = client.get(proxy_url)
+            listing_response.raise_for_status()
         return _parse_anton_rentcafe_listing(floorplans_url, listing_response.text)
 
 
@@ -65,15 +72,20 @@ def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
     baths = None
 
     for index, line in enumerate(lines):
-        if re.fullmatch(r"Residence\s+\d+", line):
-            floor_plan = line
+        floor_plan_match = re.fullmatch(r"\*{0,2}(Residence\s+\d+)\*{0,2}", line)
+        if floor_plan_match:
+            floor_plan = floor_plan_match.group(1)
             beds, baths = _parse_anton_bed_bath(lines[index : index + 6])
             continue
 
         if not floor_plan:
             continue
 
-        unit_match = re.match(
+        table_unit_match = re.match(
+            r"^\|\s*([A-Za-z0-9-]+)\s*\|\s*\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s*\|\s*([^|]+)\|",
+            line,
+        )
+        unit_match = table_unit_match or re.match(
             r"^([A-Za-z0-9-]+)\s+\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s+(.+)$",
             line,
         )
