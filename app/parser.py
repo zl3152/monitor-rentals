@@ -46,21 +46,57 @@ def parse_lume(url: str) -> list[ParsedUnit]:
 
 
 def parse_anton_menlo(url: str) -> list[ParsedUnit]:
-    floorplans_url = "https://www.antonmenlo.com/floorplans"
+    floorplans_url = "https://www.rentcafe.com/apartments/ca/menlo-park/anton-menlo/default.aspx"
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
     }
     with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
         listing_response = client.get(floorplans_url)
         listing_response.raise_for_status()
-        detail_urls = _find_anton_floorplan_urls(listing_response.text, floorplans_url)
+        return _parse_anton_rentcafe_listing(floorplans_url, listing_response.text)
 
-        units = []
-        for detail_url in detail_urls:
-            detail_response = client.get(detail_url)
-            detail_response.raise_for_status()
-            units.extend(_parse_anton_floorplan_detail(detail_url, detail_response.text))
-        return units
+
+def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
+    soup = BeautifulSoup(html, "html.parser")
+    lines = [line.strip() for line in soup.get_text("\n").splitlines() if line.strip()]
+    units = []
+    floor_plan = ""
+    beds = None
+    baths = None
+
+    for index, line in enumerate(lines):
+        if re.fullmatch(r"Residence\s+\d+", line):
+            floor_plan = line
+            beds, baths = _parse_anton_bed_bath(lines[index : index + 6])
+            continue
+
+        if not floor_plan:
+            continue
+
+        unit_match = re.match(
+            r"^([A-Za-z0-9-]+)\s+\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s+(.+)$",
+            line,
+        )
+        if not unit_match:
+            continue
+
+        unit_name = f"#{unit_match.group(1)}"
+        rent = int(unit_match.group(2).replace(",", ""))
+        availability = unit_match.group(3).strip()
+        units.append(
+            ParsedUnit(
+                external_id=f"antonmenlo:{floor_plan.lower()}:{unit_name.lower()}",
+                floor_plan=floor_plan,
+                unit_name=unit_name,
+                rent=rent,
+                beds=beds,
+                baths=baths,
+                available_date="Available" if availability == "Now" else availability,
+                unit_url=url,
+            )
+        )
+
+    return units
 
 
 def _find_anton_floorplan_urls(html: str, base_url: str) -> list[str]:
@@ -119,7 +155,21 @@ def _parse_anton_bed_bath(lines: list[str]) -> tuple[float | None, float | None]
         if match:
             return float(match.group(1)), float(match.group(2))
         match = re.search(
+            r"(\d+)\s+Bed[s]?\s*/\s*(\d+)\s+Bath[s]?",
+            line,
+            re.IGNORECASE,
+        )
+        if match:
+            return float(match.group(1)), float(match.group(2))
+        match = re.search(
             r"Studio\s+\|\s+(\d+)\s+Bathroom[s]?",
+            line,
+            re.IGNORECASE,
+        )
+        if match:
+            return 0, float(match.group(1))
+        match = re.search(
+            r"Studio\s*/\s*(\d+)\s+Bath[s]?",
             line,
             re.IGNORECASE,
         )
