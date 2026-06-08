@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.checker import check_all_active_sources
 from app.database import SessionLocal
+from app.heartbeat import send_daily_heartbeat
 
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -19,6 +20,14 @@ def create_scheduler() -> BackgroundScheduler:
         "cron",
         minute=0,
         id="rental-source-checks",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_daily_heartbeat,
+        "cron",
+        hour=8,
+        minute=15,
+        id="rental-heartbeat",
         replace_existing=True,
     )
     return scheduler
@@ -43,3 +52,11 @@ def _should_check_now(now: datetime) -> bool:
     if 7 <= now.hour <= 23:
         return True
     return now.hour in {0, 6}
+
+
+def run_daily_heartbeat() -> None:
+    db = SessionLocal()
+    try:
+        send_daily_heartbeat(db)
+    finally:
+        db.close()

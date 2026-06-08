@@ -46,6 +46,16 @@ def send_test_email() -> None:
     )
 
 
+def send_heartbeat_email(summary: dict[str, object]) -> None:
+    if not email_is_configured():
+        raise RuntimeError("Email is not fully configured.")
+
+    _send_email(
+        "Rental Tracker: daily heartbeat",
+        _build_heartbeat_body(summary),
+    )
+
+
 def _send_email(subject: str, body: str) -> None:
     if RESEND_API_KEY:
         _send_resend_email(subject, body)
@@ -99,4 +109,20 @@ def _build_digest_body(changes: list[UnitChange]) -> str:
         if change.unit and change.unit.unit_url:
             lines.append(f"  {change.unit.unit_url}")
     lines.extend(["", f"Dashboard: {APP_BASE_URL}"])
+    return "\n".join(lines)
+
+
+def _build_heartbeat_body(summary: dict[str, object]) -> str:
+    lines = [
+        "Rental Tracker heartbeat",
+        "",
+        f"Active sources: {summary['active_sources']}",
+        f"Available units: {summary['available_units']}",
+        f"Great fit units: {summary['great_fit_units']}",
+        f"Possible fit units: {summary['possible_fit_units']}",
+        f"Recent changes in last 24h: {summary['changes_last_24h']}",
+        f"Last successful check: {summary['last_successful_check'] or 'none yet'}",
+        "",
+        f"Dashboard: {APP_BASE_URL}",
+    ]
     return "\n".join(lines)

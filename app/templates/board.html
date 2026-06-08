@@ -11,6 +11,9 @@
     <form method="post" action="/board/{{ token }}/test-email">
       <button class="button secondary" type="submit">Send test email</button>
     </form>
+    <form method="post" action="/board/{{ token }}/heartbeat">
+      <button class="button secondary" type="submit">Send heartbeat</button>
+    </form>
   </div>
 </header>
 
@@ -19,6 +22,14 @@
 {% elif email_test == "failed" %}
   <section class="panel notice bad">
     Test email failed{% if email_error %}: {{ email_error }}{% else %}. Check SMTP environment variables and Render logs.{% endif %}
+  </section>
+{% endif %}
+
+{% if heartbeat == "sent" %}
+  <section class="panel notice good">Heartbeat email sent.</section>
+{% elif heartbeat == "failed" %}
+  <section class="panel notice bad">
+    Heartbeat email failed{% if heartbeat_error %}: {{ heartbeat_error }}{% else %}. Check email environment variables and Render logs.{% endif %}
   </section>
 {% endif %}
 

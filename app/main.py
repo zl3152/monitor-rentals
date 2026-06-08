@@ -13,6 +13,7 @@ from app.checker import check_source_by_id
 from app.database import Base, SessionLocal, engine, get_db, run_startup_migrations
 from app.emailer import send_test_email
 from app.fit import calculate_fit_label
+from app.heartbeat import send_daily_heartbeat
 from app.models import DetectedUnit, Property, TrackedSource, UnitChange
 from app.scheduler import create_scheduler
 
@@ -69,6 +70,8 @@ def dashboard(
     fit: str = "",
     email_test: str = "",
     email_error: str = "",
+    heartbeat: str = "",
+    heartbeat_error: str = "",
     db: Session = Depends(get_db),
 ):
     require_board(token)
@@ -106,6 +109,8 @@ def dashboard(
             "selected_fit": fit,
             "email_test": email_test,
             "email_error": email_error,
+            "heartbeat": heartbeat,
+            "heartbeat_error": heartbeat_error,
             "max_rent": MAX_RENT,
             "target_cities": sorted(city.title() for city in TARGET_CITIES),
         },
@@ -122,6 +127,20 @@ def test_email(token: str):
         error = quote(str(exc)[:240])
         return RedirectResponse(
             url=board_url(token, f"?email_test=failed&email_error={error}"),
+            status_code=303,
+        )
+
+
+@app.post("/board/{token}/heartbeat", response_class=HTMLResponse)
+def heartbeat_email(token: str, db: Session = Depends(get_db)):
+    require_board(token)
+    try:
+        send_daily_heartbeat(db)
+        return RedirectResponse(url=board_url(token, "?heartbeat=sent"), status_code=303)
+    except Exception as exc:
+        error = quote(str(exc)[:240])
+        return RedirectResponse(
+            url=board_url(token, f"?heartbeat=failed&heartbeat_error={error}"),
             status_code=303,
         )
 

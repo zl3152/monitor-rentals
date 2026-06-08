@@ -46,6 +46,9 @@ When the FastAPI app is running, active source pages are checked automatically:
 
 Use **Check now** on the dashboard when you want an immediate manual check.
 
+A daily heartbeat email is sent at 8:15 AM Pacific time with source, unit, and
+recent-change counts. Use **Send heartbeat** on the dashboard to test it manually.
+
 You can also run all active checks from the terminal:
 
 ```bash
