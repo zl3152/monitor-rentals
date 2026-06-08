@@ -22,21 +22,154 @@ def parse_source_url(url: str) -> list[ParsedUnit]:
     domain = urlparse(url).netloc.lower()
     if domain.endswith("livelume.com"):
         return parse_lume(url)
+    if domain.endswith("antonmenlo.com"):
+        return parse_anton_menlo(url)
     return []
 
 
 def parse_lume(url: str) -> list[ParsedUnit]:
     floorplans_url = "https://livelume.com/floorplans/"
     with httpx.Client(follow_redirects=True, timeout=20) as client:
-        listing_html = client.get(floorplans_url).text
+        listing_response = client.get(floorplans_url)
+        listing_response.raise_for_status()
+        listing_html = listing_response.text
         detail_urls = _find_lume_floorplan_urls(listing_html, floorplans_url)
         units = []
         for detail_url in detail_urls:
-            detail_html = client.get(detail_url).text
+            detail_response = client.get(detail_url)
+            detail_response.raise_for_status()
+            detail_html = detail_response.text
             unit = _parse_lume_floorplan_detail(detail_url, detail_html)
             if unit:
                 units.append(unit)
         return units
+
+
+def parse_anton_menlo(url: str) -> list[ParsedUnit]:
+    floorplans_url = "https://www.antonmenlo.com/floorplans"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
+    }
+    with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
+        listing_response = client.get(floorplans_url)
+        listing_response.raise_for_status()
+        detail_urls = _find_anton_floorplan_urls(listing_response.text, floorplans_url)
+
+        units = []
+        for detail_url in detail_urls:
+            detail_response = client.get(detail_url)
+            detail_response.raise_for_status()
+            units.extend(_parse_anton_floorplan_detail(detail_url, detail_response.text))
+        return units
+
+
+def _find_anton_floorplan_urls(html: str, base_url: str) -> list[str]:
+    soup = BeautifulSoup(html, "html.parser")
+    urls = set()
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if not re.search(r"/floorplans/residence-\d+/?$", href):
+            continue
+        urls.add(urljoin(base_url, href))
+    return sorted(urls)
+
+
+def _parse_anton_floorplan_detail(url: str, html: str) -> list[ParsedUnit]:
+    soup = BeautifulSoup(html, "html.parser")
+    lines = [line.strip() for line in soup.get_text("\n").splitlines() if line.strip()]
+    floor_plan = _first_matching_line(lines, r"^Residence\s+\d+$") or _slug_title(url)
+    beds, baths = _parse_anton_bed_bath(lines)
+    apply_urls = _find_anton_apply_urls(soup, url)
+
+    units = []
+    for index, line in enumerate(lines):
+        if line != "Apartment:":
+            continue
+
+        unit_name = _next_non_label_line(lines, index + 1)
+        rent_line = _line_after_label(lines, index, "Rent:")
+        date_line = _line_after_label(lines, index, "Date:")
+        rent = _parse_first_price(rent_line or "")
+        if not unit_name or rent is None:
+            continue
+
+        unit_url = apply_urls.get(unit_name, url)
+        units.append(
+            ParsedUnit(
+                external_id=f"antonmenlo:{floor_plan.lower()}:{unit_name.lower()}",
+                floor_plan=floor_plan,
+                unit_name=unit_name,
+                rent=rent,
+                beds=beds,
+                baths=baths,
+                available_date=date_line or "Available",
+                unit_url=unit_url,
+            )
+        )
+    return units
+
+
+def _parse_anton_bed_bath(lines: list[str]) -> tuple[float | None, float | None]:
+    for line in lines:
+        match = re.search(
+            r"(\d+)\s+Bedroom[s]?\s+\|\s+(\d+)\s+Bathroom[s]?",
+            line,
+            re.IGNORECASE,
+        )
+        if match:
+            return float(match.group(1)), float(match.group(2))
+        match = re.search(
+            r"Studio\s+\|\s+(\d+)\s+Bathroom[s]?",
+            line,
+            re.IGNORECASE,
+        )
+        if match:
+            return 0, float(match.group(1))
+    return None, None
+
+
+def _find_anton_apply_urls(soup: BeautifulSoup, base_url: str) -> dict[str, str]:
+    urls = {}
+    for link in soup.find_all("a", href=True):
+        text = link.get_text(" ", strip=True)
+        match = re.search(r"apartment\s+(#[A-Za-z0-9-]+)", text, re.IGNORECASE)
+        if match:
+            urls[match.group(1)] = urljoin(base_url, link["href"])
+    return urls
+
+
+def _first_matching_line(lines: list[str], pattern: str) -> str | None:
+    for line in lines:
+        if re.search(pattern, line):
+            return line
+    return None
+
+
+def _slug_title(url: str) -> str:
+    slug = url.rstrip("/").split("/")[-1]
+    return slug.replace("-", " ").title()
+
+
+def _next_non_label_line(lines: list[str], start_index: int) -> str:
+    labels = {"Apartment:", "Sq. Ft.:", "Rent:", "Deposit:", "Date:"}
+    for line in lines[start_index : start_index + 4]:
+        if line not in labels:
+            return line
+    return ""
+
+
+def _line_after_label(lines: list[str], start_index: int, label: str) -> str:
+    for index in range(start_index, min(start_index + 20, len(lines))):
+        if lines[index] == label and index + 1 < len(lines):
+            return lines[index + 1]
+    return ""
+
+
+def _parse_first_price(text: str) -> int | None:
+    prices = re.findall(r"\$([0-9,]+)(?:\.\d+)?", text)
+    if not prices:
+        return None
+    return int(prices[0].replace(",", ""))
 
 
 def _find_lume_floorplan_urls(html: str, base_url: str) -> list[str]:
@@ -123,4 +256,3 @@ def _parse_availability(lines: list[str]) -> str:
     if any(line == "Contact Us" for line in lines):
         return "Contact Us"
     return "Available"
-
