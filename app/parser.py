@@ -24,11 +24,68 @@ def parse_source_url(url: str) -> list[ParsedUnit]:
     domain = urlparse(url).netloc.lower()
     if domain.endswith("livelume.com"):
         return parse_lume(url)
+
+    candidate_url = _parser_url_for_source(url)
+    html = _fetch_with_proxy_fallback(candidate_url)
+    source_key = _source_key(url)
+
+    units = _parse_greystar_next_data(candidate_url, html, source_key)
+    if units:
+        return units
+
+    units = _parse_rentcafe_listing(candidate_url, html, source_key)
+    if units:
+        return units
+
+    raise ValueError(f"Unsupported source domain or no units found: {domain}")
+
+
+def _parser_url_for_source(url: str) -> str:
+    domain = urlparse(url).netloc.lower()
     if domain.endswith("antonmenlo.com"):
-        return parse_anton_menlo(url)
-    if domain.endswith("livevasara.com") or domain.endswith("greystar.com"):
-        return parse_vasara(url)
-    raise ValueError(f"Unsupported source domain: {domain}")
+        return "https://www.rentcafe.com/apartments/ca/menlo-park/anton-menlo/default.aspx"
+    if domain.endswith("livevasara.com"):
+        return "https://www.greystar.com/vasara-menlo-park-ca/p_21147"
+    return url
+
+
+def _fetch_with_proxy_fallback(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
+    }
+    with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
+        try:
+            response = client.get(url)
+            response.raise_for_status()
+            return response.text
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 403:
+                raise
+            proxy_response = client.get(_jina_proxy_url(url))
+            proxy_response.raise_for_status()
+            return proxy_response.text
+
+
+def _jina_proxy_url(url: str) -> str:
+    return f"https://r.jina.ai/http://r.jina.ai/http://{url}"
+
+
+def _source_key(url: str) -> str:
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    if domain.endswith("antonmenlo.com"):
+        return "antonmenlo"
+    if domain.endswith("livevasara.com"):
+        return "vasara"
+    if domain.endswith("livelume.com"):
+        return "lume"
+    if domain.endswith("greystar.com"):
+        slug = parsed.path.strip("/").split("/")[0]
+        if slug:
+            return re.sub(r"[^a-z0-9]+", "", slug.lower())
+    return re.sub(r"[^a-z0-9]+", "", domain.split(".")[0])
 
 
 def parse_lume(url: str) -> list[ParsedUnit]:
@@ -50,24 +107,19 @@ def parse_lume(url: str) -> list[ParsedUnit]:
 
 
 def parse_anton_menlo(url: str) -> list[ParsedUnit]:
-    floorplans_url = "https://www.rentcafe.com/apartments/ca/menlo-park/anton-menlo/default.aspx"
-    proxy_url = f"https://r.jina.ai/http://r.jina.ai/http://{floorplans_url}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
-    }
-    with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
-        try:
-            listing_response = client.get(floorplans_url)
-            listing_response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 403:
-                raise
-            listing_response = client.get(proxy_url)
-            listing_response.raise_for_status()
-        return _parse_anton_rentcafe_listing(floorplans_url, listing_response.text)
+    floorplans_url = _parser_url_for_source(url)
+    return _parse_rentcafe_listing(
+        floorplans_url,
+        _fetch_with_proxy_fallback(floorplans_url),
+        _source_key(url),
+    )
 
 
 def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
+    return _parse_rentcafe_listing(url, html, "antonmenlo")
+
+
+def _parse_rentcafe_listing(url: str, html: str, source_key: str) -> list[ParsedUnit]:
     soup = BeautifulSoup(html, "html.parser")
     lines = [line.strip() for line in soup.get_text("\n").splitlines() if line.strip()]
     units = []
@@ -76,21 +128,49 @@ def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
     baths = None
 
     for index, line in enumerate(lines):
-        floor_plan_match = re.fullmatch(r"\*{0,2}(Residence\s+\d+)\*{0,2}", line)
-        if floor_plan_match:
-            floor_plan = floor_plan_match.group(1)
-            beds, baths = _parse_anton_bed_bath(lines[index : index + 6])
+        floor_plan_candidate = _clean_heading_line(line)
+        line_beds, line_baths = _parse_bed_bath([line])
+        candidate_beds, candidate_baths = _parse_bed_bath(lines[index + 1 : index + 7])
+        if floor_plan_candidate and candidate_beds is not None and candidate_baths is not None:
+            if line_beds is not None or line_baths is not None:
+                continue
+            floor_plan = floor_plan_candidate
+            beds = candidate_beds
+            baths = candidate_baths
             continue
 
         if not floor_plan:
             continue
 
+        if line == "Apartment:":
+            unit_name = _next_non_label_line(lines, index + 1)
+            rent_line = _line_after_label(lines, index, "Rent:")
+            date_line = _line_after_label(lines, index, "Date:")
+            rent = _parse_first_price(rent_line or "")
+            if not unit_name or rent is None:
+                continue
+            if not unit_name.startswith("#"):
+                unit_name = f"#{unit_name}"
+            units.append(
+                ParsedUnit(
+                    external_id=f"{source_key}:{floor_plan.lower()}:{unit_name.lower()}",
+                    floor_plan=floor_plan,
+                    unit_name=unit_name,
+                    rent=rent,
+                    beds=beds,
+                    baths=baths,
+                    available_date=date_line or "Available",
+                    unit_url=url,
+                )
+            )
+            continue
+
         table_unit_match = re.match(
-            r"^\|\s*([A-Za-z0-9-]+)\s*\|\s*\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s*\|\s*([^|]+)\|",
+            r"^\|\s*#?([A-Za-z0-9-]+)\s*\|\s*\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s*\|\s*([^|]+)\|",
             line,
         )
         unit_match = table_unit_match or re.match(
-            r"^([A-Za-z0-9-]+)\s+\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s+(.+)$",
+            r"^#?([A-Za-z0-9-]+)\s+\$([0-9,]+)(?:\s*-\s*\$?[0-9,]+)?\s+(.+)$",
             line,
         )
         if not unit_match:
@@ -101,7 +181,7 @@ def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
         availability = unit_match.group(3).strip()
         units.append(
             ParsedUnit(
-                external_id=f"antonmenlo:{floor_plan.lower()}:{unit_name.lower()}",
+                external_id=f"{source_key}:{floor_plan.lower()}:{unit_name.lower()}",
                 floor_plan=floor_plan,
                 unit_name=unit_name,
                 rent=rent,
@@ -115,15 +195,30 @@ def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
     return units
 
 
-def parse_vasara(url: str) -> list[ParsedUnit]:
-    greystar_url = "https://www.greystar.com/vasara-menlo-park-ca/p_21147"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
+def _clean_heading_line(line: str) -> str:
+    cleaned = re.sub(r"^[#*\s]+|[*\s]+$", "", line).strip()
+    blocked = {
+        "",
+        "floor plans",
+        "floor plan details",
+        "floor plan video",
+        "unit availability filters",
+        "apartment search result",
     }
-    with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
-        response = client.get(greystar_url)
-        response.raise_for_status()
-        return _parse_greystar_next_data(greystar_url, response.text, "vasara")
+    if cleaned.lower() in blocked:
+        return ""
+    if cleaned.startswith("|") or cleaned.startswith("!["):
+        return ""
+    return cleaned
+
+
+def parse_vasara(url: str) -> list[ParsedUnit]:
+    greystar_url = _parser_url_for_source(url)
+    return _parse_greystar_next_data(
+        greystar_url,
+        _fetch_with_proxy_fallback(greystar_url),
+        _source_key(url),
+    )
 
 
 def _parse_greystar_next_data(url: str, html: str, source_key: str) -> list[ParsedUnit]:
@@ -210,7 +305,7 @@ def _parse_anton_floorplan_detail(url: str, html: str) -> list[ParsedUnit]:
     soup = BeautifulSoup(html, "html.parser")
     lines = [line.strip() for line in soup.get_text("\n").splitlines() if line.strip()]
     floor_plan = _first_matching_line(lines, r"^Residence\s+\d+$") or _slug_title(url)
-    beds, baths = _parse_anton_bed_bath(lines)
+    beds, baths = _parse_bed_bath(lines)
     apply_urls = _find_anton_apply_urls(soup, url)
 
     units = []
@@ -241,7 +336,7 @@ def _parse_anton_floorplan_detail(url: str, html: str) -> list[ParsedUnit]:
     return units
 
 
-def _parse_anton_bed_bath(lines: list[str]) -> tuple[float | None, float | None]:
+def _parse_bed_bath(lines: list[str]) -> tuple[float | None, float | None]:
     for line in lines:
         match = re.search(
             r"(\d+)\s+Bedroom[s]?\s+\|\s+(\d+)\s+Bathroom[s]?",
