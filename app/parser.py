@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from datetime import date
 from urllib.parse import urljoin, urlparse
+import json
 import re
 
 import httpx
@@ -24,7 +26,9 @@ def parse_source_url(url: str) -> list[ParsedUnit]:
         return parse_lume(url)
     if domain.endswith("antonmenlo.com"):
         return parse_anton_menlo(url)
-    return []
+    if domain.endswith("livevasara.com") or domain.endswith("greystar.com"):
+        return parse_vasara(url)
+    raise ValueError(f"Unsupported source domain: {domain}")
 
 
 def parse_lume(url: str) -> list[ParsedUnit]:
@@ -109,6 +113,86 @@ def _parse_anton_rentcafe_listing(url: str, html: str) -> list[ParsedUnit]:
         )
 
     return units
+
+
+def parse_vasara(url: str) -> list[ParsedUnit]:
+    greystar_url = "https://www.greystar.com/vasara-menlo-park-ca/p_21147"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
+    }
+    with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
+        response = client.get(greystar_url)
+        response.raise_for_status()
+        return _parse_greystar_next_data(greystar_url, response.text, "vasara")
+
+
+def _parse_greystar_next_data(url: str, html: str, source_key: str) -> list[ParsedUnit]:
+    soup = BeautifulSoup(html, "html.parser")
+    script = soup.find("script", id="__NEXT_DATA__")
+    if not script or not script.string:
+        return []
+
+    data = json.loads(script.string)
+    page_props = data.get("props", {}).get("pageProps", {})
+    property_context = (
+        page_props.get("page", {})
+        .get("layout", {})
+        .get("sitecore", {})
+        .get("context", {})
+        .get("property", {})
+    )
+    floorplans = {
+        str(floorplan.get("id")): floorplan
+        for floorplan in property_context.get("floorplans", [])
+    }
+
+    units = []
+    for unit in page_props.get("propertyUnits", []):
+        unit_number = str(unit.get("unitNumber") or "").strip()
+        floor_plan = str(unit.get("floorPlanLabel") or "").strip()
+        rent = unit.get("minPrice")
+        if not unit_number or not floor_plan or rent is None:
+            continue
+
+        floorplan = floorplans.get(str(unit.get("floorPlanId")), {})
+        available_on = str(unit.get("availableOn") or "").strip()
+        unit_id = str(unit.get("unitId") or "").strip()
+        unit_url = url
+        if unit_id and available_on:
+            unit_url = f"{url}/calculator?leaseTerm=12&moveInDate={available_on}&unitId={unit_id}"
+
+        units.append(
+            ParsedUnit(
+                external_id=f"{source_key}:{floor_plan.lower()}:{unit_number.lower()}",
+                floor_plan=floor_plan,
+                unit_name=f"#{unit_number}",
+                rent=int(rent),
+                beds=_number_or_none(floorplan.get("bedroomCount")),
+                baths=_number_or_none(floorplan.get("bathroomCount")),
+                available_date=_format_available_on(available_on),
+                unit_url=unit_url,
+            )
+        )
+
+    return units
+
+
+def _number_or_none(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _format_available_on(value: str) -> str:
+    if not value:
+        return "Available"
+    try:
+        available_on = date.fromisoformat(value)
+    except ValueError:
+        return value
+    if available_on <= date.today():
+        return "Available"
+    return available_on.strftime("%b %-d, %Y")
 
 
 def _find_anton_floorplan_urls(html: str, base_url: str) -> list[str]:
