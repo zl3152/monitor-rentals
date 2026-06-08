@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import asc, desc
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
@@ -34,6 +36,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Monitor Rentals", lifespan=lifespan)
 templates = Jinja2Templates(directory="app/templates")
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 STATUSES = [
     "New",
@@ -46,6 +49,24 @@ STATUSES = [
 ]
 PROPERTY_TYPES = ["Apartment", "Townhouse", "Other"]
 CITIES = ["Menlo Park", "Palo Alto", "Mountain View", "Redwood City", "Other"]
+UNIT_FITS = ["Great fit", "Possible fit", "Needs review", "Not a fit"]
+UNIT_SORTS = {
+    "newest": ("Newest", desc(DetectedUnit.first_seen_at)),
+    "rent_asc": ("Rent low to high", asc(DetectedUnit.rent)),
+    "rent_desc": ("Rent high to low", desc(DetectedUnit.rent)),
+    "available": ("Availability", asc(DetectedUnit.available_date)),
+}
+
+
+def format_pt(value: datetime | None) -> str:
+    if not value:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(PACIFIC).strftime("%Y-%m-%d %H:%M %Z")
+
+
+templates.env.globals["format_pt"] = format_pt
 
 
 def require_board(token: str) -> None:
@@ -68,6 +89,8 @@ def dashboard(
     request: Request,
     status: str = "",
     fit: str = "",
+    unit_fit: str = "",
+    unit_sort: str = "newest",
     email_test: str = "",
     email_error: str = "",
     heartbeat: str = "",
@@ -82,16 +105,15 @@ def dashboard(
         query = query.filter(Property.fit_label == fit)
     properties = query.order_by(Property.created_at.desc()).all()
     sources = db.query(TrackedSource).order_by(TrackedSource.created_at.desc()).all()
-    units = (
-        db.query(DetectedUnit)
-        .filter(DetectedUnit.is_available.is_(True))
-        .order_by(DetectedUnit.first_seen_at.desc())
-        .all()
-    )
+    unit_query = db.query(DetectedUnit).filter(DetectedUnit.is_available.is_(True))
+    if unit_fit:
+        unit_query = unit_query.filter(DetectedUnit.fit_label == unit_fit)
+    unit_sort_key = unit_sort if unit_sort in UNIT_SORTS else "newest"
+    units = unit_query.order_by(UNIT_SORTS[unit_sort_key][1]).all()
     recent_changes = (
         db.query(UnitChange)
         .order_by(UnitChange.detected_at.desc())
-        .limit(12)
+        .limit(50)
         .all()
     )
 
@@ -107,6 +129,10 @@ def dashboard(
             "statuses": STATUSES,
             "selected_status": status,
             "selected_fit": fit,
+            "unit_fits": UNIT_FITS,
+            "selected_unit_fit": unit_fit,
+            "unit_sorts": UNIT_SORTS,
+            "selected_unit_sort": unit_sort_key,
             "email_test": email_test,
             "email_error": email_error,
             "heartbeat": heartbeat,

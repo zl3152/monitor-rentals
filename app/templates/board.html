@@ -6,15 +6,6 @@
     <h1>Monitor Rentals</h1>
     <p class="subtitle">Apartments under ${{ "{:,}".format(max_rent) }} in {{ target_cities | join(", ") }}.</p>
   </div>
-  <div class="stack">
-    <a class="button" href="/board/{{ token }}/sources/new">Add source URL</a>
-    <form method="post" action="/board/{{ token }}/test-email">
-      <button class="button secondary" type="submit">Send test email</button>
-    </form>
-    <form method="post" action="/board/{{ token }}/heartbeat">
-      <button class="button secondary" type="submit">Send heartbeat</button>
-    </form>
-  </div>
 </header>
 
 {% if email_test == "sent" %}
@@ -79,11 +70,11 @@
             </td>
             <td>
               {% if source.last_check_status in ["queued", "running"] and source.last_check_started_at %}
-                Started {{ source.last_check_started_at.strftime("%Y-%m-%d %H:%M") }}
+                Started {{ format_pt(source.last_check_started_at) }}
               {% elif source.last_check_finished_at %}
-                Finished {{ source.last_check_finished_at.strftime("%Y-%m-%d %H:%M") }}
+                Finished {{ format_pt(source.last_check_finished_at) }}
               {% elif source.last_checked_at %}
-                {{ source.last_checked_at.strftime("%Y-%m-%d %H:%M") }}
+                {{ format_pt(source.last_checked_at) }}
               {% else %}
                 <span class="meta">Not checked yet</span>
               {% endif %}
@@ -108,9 +99,36 @@
 <div class="section-header">
   <div>
     <h2>Detected available units</h2>
-    <div class="meta">These will be populated by the checker once URL parsing is added.</div>
+    <div class="meta">Available units detected from source checks.</div>
   </div>
 </div>
+
+<section class="panel toolbar">
+  <form class="filters" method="get">
+    <label>
+      Fit
+      <select name="unit_fit">
+        <option value="">All fits</option>
+        {% for label in unit_fits %}
+          <option value="{{ label }}" {% if selected_unit_fit == label %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Sort
+      <select name="unit_sort">
+        {% for value, option in unit_sorts.items() %}
+          <option value="{{ value }}" {% if selected_unit_sort == value %}selected{% endif %}>{{ option[0] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button secondary" type="submit">Apply</button>
+    {% if selected_unit_fit or selected_unit_sort != "newest" %}
+      <a class="button secondary" href="/board/{{ token }}">Reset</a>
+    {% endif %}
+  </form>
+  <div class="meta">{{ units | length }} units shown</div>
+</section>
 
 <section class="panel">
   {% if units %}
@@ -156,7 +174,7 @@
       </tbody>
     </table>
   {% else %}
-    <div class="empty">No units detected yet. Next we will teach the checker to parse your actual source pages.</div>
+    <div class="empty">No units match the current filters.</div>
   {% endif %}
 </section>
 
@@ -187,7 +205,7 @@
                 <div><a href="{{ change.unit.unit_url }}" target="_blank" rel="noreferrer">Open unit</a></div>
               {% endif %}
             </td>
-            <td>{{ change.detected_at.strftime("%Y-%m-%d %H:%M") }}</td>
+            <td>{{ format_pt(change.detected_at) }}</td>
             <td>
               {% if change.emailed_at %}
                 <span class="badge good">Sent</span>
