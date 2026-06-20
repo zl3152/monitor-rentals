@@ -110,6 +110,13 @@
         opacity: 0.72;
       }
 
+      .button.disabled {
+        border-color: var(--line);
+        color: var(--muted);
+        cursor: default;
+        opacity: 0.72;
+      }
+
       .panel {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -260,6 +267,15 @@
         gap: 8px;
       }
 
+      .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        padding: 14px;
+        border-top: 1px solid var(--line);
+      }
+
       @media (max-width: 760px) {
         header, .toolbar {
           align-items: stretch;
@@ -289,6 +305,11 @@
         td {
           border-bottom: 0;
           padding: 7px 14px;
+        }
+
+        .pagination {
+          align-items: stretch;
+          flex-direction: column;
         }
       }
     </style>

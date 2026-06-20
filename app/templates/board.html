@@ -138,7 +138,13 @@
       <a class="button secondary" href="/board/{{ token }}">Reset</a>
     {% endif %}
   </form>
-  <div class="meta">{{ units | length }} units shown</div>
+  <div class="meta">
+    {% if unit_pagination.total %}
+      Showing {{ unit_pagination.start }}-{{ unit_pagination.end }} of {{ unit_pagination.total }}
+    {% else %}
+      0 units shown
+    {% endif %}
+  </div>
 </section>
 
 <section class="panel">
@@ -199,6 +205,21 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if unit_pagination.total_pages > 1 %}
+      <div class="pagination">
+        {% if unit_pagination.prev_url %}
+          <a class="button secondary" href="{{ unit_pagination.prev_url }}">Previous</a>
+        {% else %}
+          <span class="button secondary disabled">Previous</span>
+        {% endif %}
+        <span class="meta">Page {{ unit_pagination.page }} of {{ unit_pagination.total_pages }}</span>
+        {% if unit_pagination.next_url %}
+          <a class="button secondary" href="{{ unit_pagination.next_url }}">Next</a>
+        {% else %}
+          <span class="button secondary disabled">Next</span>
+        {% endif %}
+      </div>
+    {% endif %}
   {% else %}
     <div class="empty">No units match the current filters.</div>
   {% endif %}

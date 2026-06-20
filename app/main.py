@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from urllib.parse import quote
+from math import ceil
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException
@@ -50,6 +51,7 @@ UNIT_VIEWS = {
     "dismissed": "Dismissed units",
     "all": "All units",
 }
+UNITS_PER_PAGE = 20
 
 
 def format_pt(value: datetime | None) -> str:
@@ -72,6 +74,11 @@ def board_url(token: str, path: str = "") -> str:
     return f"/board/{token}{path}"
 
 
+def board_query_url(token: str, params: dict[str, object], unit_page: int) -> str:
+    query_params = {**params, "unit_page": unit_page}
+    return board_url(token, f"?{urlencode(query_params)}")
+
+
 @app.get("/", response_class=HTMLResponse)
 def root():
     return RedirectResponse(url=board_url(BOARD_TOKEN))
@@ -84,6 +91,7 @@ def dashboard(
     unit_fit: str = "",
     unit_sort: str = "newest",
     unit_view: str = "active",
+    unit_page: int = 1,
     email_test: str = "",
     email_error: str = "",
     heartbeat: str = "",
@@ -101,7 +109,36 @@ def dashboard(
     if unit_fit:
         unit_query = unit_query.filter(DetectedUnit.fit_label == unit_fit)
     unit_sort_key = unit_sort if unit_sort in UNIT_SORTS else "newest"
-    units = unit_query.order_by(UNIT_SORTS[unit_sort_key][1]).all()
+    total_units = unit_query.count()
+    total_unit_pages = max(1, ceil(total_units / UNITS_PER_PAGE))
+    unit_page = min(max(unit_page, 1), total_unit_pages)
+    unit_offset = (unit_page - 1) * UNITS_PER_PAGE
+    units = (
+        unit_query.order_by(UNIT_SORTS[unit_sort_key][1])
+        .offset(unit_offset)
+        .limit(UNITS_PER_PAGE)
+        .all()
+    )
+    unit_page_base_params = {
+        "unit_view": unit_view_key,
+        "unit_sort": unit_sort_key,
+    }
+    if unit_fit:
+        unit_page_base_params["unit_fit"] = unit_fit
+    unit_pagination = {
+        "page": unit_page,
+        "per_page": UNITS_PER_PAGE,
+        "total": total_units,
+        "total_pages": total_unit_pages,
+        "start": unit_offset + 1 if total_units else 0,
+        "end": min(unit_offset + len(units), total_units),
+        "prev_url": board_query_url(token, unit_page_base_params, unit_page - 1)
+        if unit_page > 1
+        else "",
+        "next_url": board_query_url(token, unit_page_base_params, unit_page + 1)
+        if unit_page < total_unit_pages
+        else "",
+    }
     recent_changes = (
         db.query(UnitChange)
         .outerjoin(DetectedUnit, UnitChange.unit_id == DetectedUnit.id)
@@ -118,6 +155,7 @@ def dashboard(
             "token": token,
             "sources": sources,
             "units": units,
+            "unit_pagination": unit_pagination,
             "recent_changes": recent_changes,
             "unit_fits": UNIT_FITS,
             "selected_unit_fit": unit_fit,
