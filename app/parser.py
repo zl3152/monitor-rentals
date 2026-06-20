@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
+import hashlib
 import json
 import re
 
@@ -33,6 +34,10 @@ def parse_source_url(url: str) -> list[ParsedUnit]:
     if units:
         return units
 
+    units = _parse_jonah_floorplans(candidate_url, html, source_key)
+    if units:
+        return units
+
     units = _parse_rentcafe_listing(candidate_url, html, source_key)
     if units:
         return units
@@ -46,6 +51,8 @@ def _parser_url_for_source(url: str) -> str:
         return "https://www.rentcafe.com/apartments/ca/menlo-park/anton-menlo/default.aspx"
     if domain.endswith("livevasara.com"):
         return "https://www.greystar.com/vasara-menlo-park-ca/p_21147"
+    if domain.endswith("livelandsby.com") and not url.rstrip("/").endswith("/floorplans"):
+        return "https://livelandsby.com/floorplans/"
     return url
 
 
@@ -221,6 +228,81 @@ def parse_vasara(url: str) -> list[ParsedUnit]:
     )
 
 
+def _parse_jonah_floorplans(url: str, html: str, source_key: str) -> list[ParsedUnit]:
+    soup = BeautifulSoup(html, "html.parser")
+    script = soup.find("script", id="jd-fp-data-script-app")
+    if not script or not script.string:
+        return []
+
+    config = json.loads(script.string)
+    base_uri = config.get("base_uri") or "/floorplans/"
+    endpoint = config.get("renderable_endpoint") or "_fp-renderable"
+    endpoint_url = urljoin(urljoin(url, base_uri), f"{endpoint.strip('/')}/")
+    pathname = urlparse(urljoin(url, base_uri)).path
+    instance = hashlib.md5(pathname.encode()).hexdigest()
+    params = [f"instance={instance}", "action=render", "type=listing-chunks"]
+    for filter_id in config.get("filter_ids") or []:
+        params.append(f"ids[]={filter_id}")
+    chunks_url = urljoin(url, endpoint_url) + quote("params:" + "&".join(params), safe="") + "/"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; MonitorRentals/1.0)",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": urljoin(url, base_uri),
+    }
+    with httpx.Client(follow_redirects=True, headers=headers, timeout=20) as client:
+        response = client.get(chunks_url, params={"forcecache": 1})
+        response.raise_for_status()
+
+    chunks = BeautifulSoup(response.text, "html.parser")
+    unit_data = _chunk_json(chunks, "unit-data")
+    return _parse_jonah_units(url, unit_data, source_key)
+
+
+def _chunk_json(soup: BeautifulSoup, key: str) -> list[dict]:
+    chunk = soup.find(attrs={"data-chunk-key": key})
+    if not chunk:
+        return []
+    text = chunk.get_text(strip=True)
+    if not text:
+        return []
+    return json.loads(text)
+
+
+def _parse_jonah_units(url: str, unit_data: list[dict], source_key: str) -> list[ParsedUnit]:
+    units = []
+    for unit in unit_data:
+        unit_name = str(unit.get("title") or unit.get("apartment_number") or "").strip()
+        floor_plan = str(unit.get("floorplan_title") or "").strip()
+        rent = _parse_intish(unit.get("rent_min"))
+        if not unit_name or not floor_plan or rent is None:
+            continue
+        if not unit_name.startswith("#"):
+            unit_name = f"#{unit_name}"
+        units.append(
+            ParsedUnit(
+                external_id=f"{source_key}:{floor_plan.lower()}:{unit_name.lower()}",
+                floor_plan=floor_plan,
+                unit_name=unit_name,
+                rent=rent,
+                beds=_parse_bedroom_value(unit.get("bedrooms")),
+                baths=_number_or_none(unit.get("bathrooms")),
+                available_date="Available",
+                unit_url=urljoin(url, str(unit.get("permalink") or "")) or url,
+            )
+        )
+    return units
+
+
+def _parse_bedroom_value(value: object) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text == "studio":
+        return 0
+    return _number_or_none(value)
+
+
 def _parse_greystar_next_data(url: str, html: str, source_key: str) -> list[ParsedUnit]:
     soup = BeautifulSoup(html, "html.parser")
     script = soup.find("script", id="__NEXT_DATA__")
@@ -276,6 +358,15 @@ def _number_or_none(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+def _parse_intish(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return round(float(str(value).replace(",", "")))
+    except ValueError:
+        return None
 
 
 def _format_available_on(value: str) -> str:
