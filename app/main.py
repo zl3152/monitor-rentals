@@ -14,9 +14,8 @@ from app.config import BOARD_TOKEN, MAX_RENT, TARGET_CITIES
 from app.checker import check_source_by_id
 from app.database import Base, SessionLocal, engine, get_db, run_startup_migrations
 from app.emailer import send_test_email
-from app.fit import calculate_fit_label
 from app.heartbeat import send_daily_heartbeat
-from app.models import DetectedUnit, Property, TrackedSource, UnitChange
+from app.models import DetectedUnit, TrackedSource, UnitChange
 from app.scheduler import create_scheduler
 
 
@@ -38,16 +37,6 @@ app = FastAPI(title="Monitor Rentals", lifespan=lifespan)
 templates = Jinja2Templates(directory="app/templates")
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
-STATUSES = [
-    "New",
-    "Interested",
-    "Contacted",
-    "Tour Scheduled",
-    "Applied",
-    "Rejected",
-    "Unavailable",
-]
-PROPERTY_TYPES = ["Apartment", "Townhouse", "Other"]
 CITIES = ["Menlo Park", "Palo Alto", "Mountain View", "Redwood City", "Other"]
 UNIT_FITS = ["Great fit", "Possible fit", "Needs review", "Not a fit"]
 UNIT_SORTS = {
@@ -92,8 +81,6 @@ def root():
 def dashboard(
     token: str,
     request: Request,
-    status: str = "",
-    fit: str = "",
     unit_fit: str = "",
     unit_sort: str = "newest",
     unit_view: str = "active",
@@ -104,12 +91,6 @@ def dashboard(
     db: Session = Depends(get_db),
 ):
     require_board(token)
-    query = db.query(Property)
-    if status:
-        query = query.filter(Property.status == status)
-    if fit:
-        query = query.filter(Property.fit_label == fit)
-    properties = query.order_by(Property.created_at.desc()).all()
     sources = db.query(TrackedSource).order_by(TrackedSource.created_at.desc()).all()
     unit_view_key = unit_view if unit_view in UNIT_VIEWS else "active"
     unit_query = db.query(DetectedUnit).filter(DetectedUnit.is_available.is_(True))
@@ -135,13 +116,9 @@ def dashboard(
         {
             "request": request,
             "token": token,
-            "properties": properties,
             "sources": sources,
             "units": units,
             "recent_changes": recent_changes,
-            "statuses": STATUSES,
-            "selected_status": status,
-            "selected_fit": fit,
             "unit_fits": UNIT_FITS,
             "selected_unit_fit": unit_fit,
             "unit_sorts": UNIT_SORTS,
@@ -214,136 +191,6 @@ def restore_unit(
     unit.dismissed_at = None
     db.commit()
     return RedirectResponse(url=board_url(token, "?unit_view=dismissed"), status_code=303)
-
-
-@app.get("/board/{token}/properties/new", response_class=HTMLResponse)
-def new_property(token: str, request: Request):
-    require_board(token)
-    return templates.TemplateResponse(
-        "property_form.html",
-        {
-            "request": request,
-            "token": token,
-            "property": None,
-            "statuses": STATUSES,
-            "property_types": PROPERTY_TYPES,
-            "cities": CITIES,
-        },
-    )
-
-
-@app.post("/board/{token}/properties", response_class=HTMLResponse)
-def create_property(
-    token: str,
-    url: str = Form(...),
-    property_name: str = Form(""),
-    address: str = Form(""),
-    city: str = Form(""),
-    rent: int | None = Form(None),
-    beds: float | None = Form(None),
-    baths: float | None = Form(None),
-    property_type: str = Form("Apartment"),
-    has_amenities: str = Form(""),
-    status: str = Form("New"),
-    notes: str = Form(""),
-    db: Session = Depends(get_db),
-):
-    require_board(token)
-    prop = Property(
-        url=url.strip(),
-        property_name=property_name.strip(),
-        address=address.strip(),
-        city=city.strip(),
-        rent=rent,
-        beds=beds,
-        baths=baths,
-        property_type=property_type,
-        has_amenities=_parse_bool(has_amenities),
-        status=status,
-        notes=notes.strip(),
-    )
-    prop.fit_label = calculate_fit_label(prop)
-    db.add(prop)
-    db.commit()
-    return RedirectResponse(url=board_url(token), status_code=303)
-
-
-@app.get("/board/{token}/properties/{property_id}/edit", response_class=HTMLResponse)
-def edit_property(
-    token: str,
-    property_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    require_board(token)
-    prop = db.get(Property, property_id)
-    if not prop:
-        raise HTTPException(status_code=404, detail="Property not found")
-    return templates.TemplateResponse(
-        "property_form.html",
-        {
-            "request": request,
-            "token": token,
-            "property": prop,
-            "statuses": STATUSES,
-            "property_types": PROPERTY_TYPES,
-            "cities": CITIES,
-        },
-    )
-
-
-@app.post("/board/{token}/properties/{property_id}", response_class=HTMLResponse)
-def update_property(
-    token: str,
-    property_id: int,
-    url: str = Form(...),
-    property_name: str = Form(""),
-    address: str = Form(""),
-    city: str = Form(""),
-    rent: int | None = Form(None),
-    beds: float | None = Form(None),
-    baths: float | None = Form(None),
-    property_type: str = Form("Apartment"),
-    has_amenities: str = Form(""),
-    status: str = Form("New"),
-    notes: str = Form(""),
-    db: Session = Depends(get_db),
-):
-    require_board(token)
-    prop = db.get(Property, property_id)
-    if not prop:
-        raise HTTPException(status_code=404, detail="Property not found")
-
-    prop.url = url.strip()
-    prop.property_name = property_name.strip()
-    prop.address = address.strip()
-    prop.city = city.strip()
-    prop.rent = rent
-    prop.beds = beds
-    prop.baths = baths
-    prop.property_type = property_type
-    prop.has_amenities = _parse_bool(has_amenities)
-    prop.status = status
-    prop.notes = notes.strip()
-    prop.fit_label = calculate_fit_label(prop)
-
-    db.commit()
-    return RedirectResponse(url=board_url(token), status_code=303)
-
-
-@app.post("/board/{token}/properties/{property_id}/delete", response_class=HTMLResponse)
-def delete_property(
-    token: str,
-    property_id: int,
-    db: Session = Depends(get_db),
-):
-    require_board(token)
-    prop = db.get(Property, property_id)
-    if not prop:
-        raise HTTPException(status_code=404, detail="Property not found")
-    db.delete(prop)
-    db.commit()
-    return RedirectResponse(url=board_url(token), status_code=303)
 
 
 @app.get("/board/{token}/sources/new", response_class=HTMLResponse)
