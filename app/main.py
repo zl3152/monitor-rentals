@@ -430,6 +430,28 @@ def update_source(
     return RedirectResponse(url=board_url(token), status_code=303)
 
 
+@app.post("/board/{token}/sources/{source_id}/delete", response_class=HTMLResponse)
+def delete_source(
+    token: str,
+    source_id: int,
+    db: Session = Depends(get_db),
+):
+    require_board(token)
+    source = db.get(TrackedSource, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    db.query(UnitChange).filter(UnitChange.source_id == source.id).delete(
+        synchronize_session=False
+    )
+    db.query(DetectedUnit).filter(DetectedUnit.source_id == source.id).delete(
+        synchronize_session=False
+    )
+    db.delete(source)
+    db.commit()
+    return RedirectResponse(url=board_url(token), status_code=303)
+
+
 @app.post("/board/{token}/sources/{source_id}/check", response_class=HTMLResponse)
 def check_source_now(
     token: str,

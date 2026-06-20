@@ -85,6 +85,9 @@
                   <button class="button secondary" type="submit">Check now</button>
                 </form>
                 <a href="/board/{{ token }}/sources/{{ source.id }}/edit">Edit</a>
+                <form method="post" action="/board/{{ token }}/sources/{{ source.id }}/delete" data-pending-label="Removing..." data-confirm="Remove this source URL and all units detected from it?">
+                  <button class="link-button danger" type="submit">Remove source</button>
+                </form>
               </div>
             </td>
           </tr>
