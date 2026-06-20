@@ -109,6 +109,10 @@
 <section class="panel toolbar">
   <form class="filters" method="get">
     <label>
+      Apartment
+      <input name="apartment_name" value="{{ selected_apartment_name }}" placeholder="Lume, Anton, Vasara">
+    </label>
+    <label>
       View
       <select name="unit_view">
         {% for value, label in unit_views.items() %}
@@ -134,7 +138,7 @@
       </select>
     </label>
     <button class="button secondary" type="submit">Apply</button>
-    {% if selected_unit_fit or selected_unit_sort != "newest" or selected_unit_view != "active" %}
+    {% if selected_apartment_name or selected_unit_fit or selected_unit_sort != "newest" or selected_unit_view != "active" %}
       <a class="button secondary" href="/board/{{ token }}">Reset</a>
     {% endif %}
   </form>
@@ -230,6 +234,13 @@
     <h2>Recent changes</h2>
     <div class="meta">New units, rent changes, availability changes, and fit changes detected by checks.</div>
   </div>
+  <div class="meta">
+    {% if recent_pagination.total %}
+      Showing {{ recent_pagination.start }}-{{ recent_pagination.end }} of {{ recent_pagination.total }}
+    {% else %}
+      0 changes shown
+    {% endif %}
+  </div>
 </div>
 
 <section class="panel">
@@ -264,6 +275,21 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if recent_pagination.total_pages > 1 %}
+      <div class="pagination">
+        {% if recent_pagination.prev_url %}
+          <a class="button secondary" href="{{ recent_pagination.prev_url }}">Previous</a>
+        {% else %}
+          <span class="button secondary disabled">Previous</span>
+        {% endif %}
+        <span class="meta">Page {{ recent_pagination.page }} of {{ recent_pagination.total_pages }}</span>
+        {% if recent_pagination.next_url %}
+          <a class="button secondary" href="{{ recent_pagination.next_url }}">Next</a>
+        {% else %}
+          <span class="button secondary disabled">Next</span>
+        {% endif %}
+      </div>
+    {% endif %}
   {% else %}
     <div class="empty">No changes recorded yet. Run a source check to start building history.</div>
   {% endif %}

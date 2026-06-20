@@ -51,7 +51,7 @@ UNIT_VIEWS = {
     "dismissed": "Dismissed units",
     "all": "All units",
 }
-UNITS_PER_PAGE = 20
+ITEMS_PER_PAGE = 10
 
 
 def format_pt(value: datetime | None) -> str:
@@ -74,9 +74,8 @@ def board_url(token: str, path: str = "") -> str:
     return f"/board/{token}{path}"
 
 
-def board_query_url(token: str, params: dict[str, object], unit_page: int) -> str:
-    query_params = {**params, "unit_page": unit_page}
-    return board_url(token, f"?{urlencode(query_params)}")
+def board_query_url(token: str, params: dict[str, object]) -> str:
+    return board_url(token, f"?{urlencode(params)}")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -92,6 +91,8 @@ def dashboard(
     unit_sort: str = "newest",
     unit_view: str = "active",
     unit_page: int = 1,
+    recent_page: int = 1,
+    apartment_name: str = "",
     email_test: str = "",
     email_error: str = "",
     heartbeat: str = "",
@@ -99,9 +100,14 @@ def dashboard(
     db: Session = Depends(get_db),
 ):
     require_board(token)
+    apartment_name = apartment_name.strip()
     sources = db.query(TrackedSource).order_by(TrackedSource.created_at.desc()).all()
     unit_view_key = unit_view if unit_view in UNIT_VIEWS else "active"
     unit_query = db.query(DetectedUnit).filter(DetectedUnit.is_available.is_(True))
+    if apartment_name:
+        unit_query = unit_query.join(TrackedSource).filter(
+            TrackedSource.name.ilike(f"%{apartment_name}%")
+        )
     if unit_view_key == "dismissed":
         unit_query = unit_query.filter(DetectedUnit.dismissed_at.is_not(None))
     elif unit_view_key == "active":
@@ -110,43 +116,87 @@ def dashboard(
         unit_query = unit_query.filter(DetectedUnit.fit_label == unit_fit)
     unit_sort_key = unit_sort if unit_sort in UNIT_SORTS else "newest"
     total_units = unit_query.count()
-    total_unit_pages = max(1, ceil(total_units / UNITS_PER_PAGE))
+    total_unit_pages = max(1, ceil(total_units / ITEMS_PER_PAGE))
     unit_page = min(max(unit_page, 1), total_unit_pages)
-    unit_offset = (unit_page - 1) * UNITS_PER_PAGE
+    unit_offset = (unit_page - 1) * ITEMS_PER_PAGE
     units = (
         unit_query.order_by(UNIT_SORTS[unit_sort_key][1])
         .offset(unit_offset)
-        .limit(UNITS_PER_PAGE)
+        .limit(ITEMS_PER_PAGE)
         .all()
     )
     unit_page_base_params = {
         "unit_view": unit_view_key,
         "unit_sort": unit_sort_key,
+        "recent_page": recent_page,
     }
     if unit_fit:
         unit_page_base_params["unit_fit"] = unit_fit
+    if apartment_name:
+        unit_page_base_params["apartment_name"] = apartment_name
     unit_pagination = {
         "page": unit_page,
-        "per_page": UNITS_PER_PAGE,
+        "per_page": ITEMS_PER_PAGE,
         "total": total_units,
         "total_pages": total_unit_pages,
         "start": unit_offset + 1 if total_units else 0,
         "end": min(unit_offset + len(units), total_units),
-        "prev_url": board_query_url(token, unit_page_base_params, unit_page - 1)
+        "prev_url": board_query_url(
+            token, {**unit_page_base_params, "unit_page": unit_page - 1}
+        )
         if unit_page > 1
         else "",
-        "next_url": board_query_url(token, unit_page_base_params, unit_page + 1)
+        "next_url": board_query_url(
+            token, {**unit_page_base_params, "unit_page": unit_page + 1}
+        )
         if unit_page < total_unit_pages
         else "",
     }
-    recent_changes = (
+    recent_query = (
         db.query(UnitChange)
+        .join(TrackedSource, UnitChange.source_id == TrackedSource.id)
         .outerjoin(DetectedUnit, UnitChange.unit_id == DetectedUnit.id)
         .filter(or_(UnitChange.unit_id.is_(None), DetectedUnit.dismissed_at.is_(None)))
-        .order_by(UnitChange.detected_at.desc())
-        .limit(50)
+    )
+    if apartment_name:
+        recent_query = recent_query.filter(TrackedSource.name.ilike(f"%{apartment_name}%"))
+    total_recent_changes = recent_query.count()
+    total_recent_pages = max(1, ceil(total_recent_changes / ITEMS_PER_PAGE))
+    recent_page = min(max(recent_page, 1), total_recent_pages)
+    recent_offset = (recent_page - 1) * ITEMS_PER_PAGE
+    recent_changes = (
+        recent_query.order_by(UnitChange.detected_at.desc())
+        .offset(recent_offset)
+        .limit(ITEMS_PER_PAGE)
         .all()
     )
+    recent_page_base_params = {
+        "unit_view": unit_view_key,
+        "unit_sort": unit_sort_key,
+        "unit_page": unit_page,
+    }
+    if unit_fit:
+        recent_page_base_params["unit_fit"] = unit_fit
+    if apartment_name:
+        recent_page_base_params["apartment_name"] = apartment_name
+    recent_pagination = {
+        "page": recent_page,
+        "per_page": ITEMS_PER_PAGE,
+        "total": total_recent_changes,
+        "total_pages": total_recent_pages,
+        "start": recent_offset + 1 if total_recent_changes else 0,
+        "end": min(recent_offset + len(recent_changes), total_recent_changes),
+        "prev_url": board_query_url(
+            token, {**recent_page_base_params, "recent_page": recent_page - 1}
+        )
+        if recent_page > 1
+        else "",
+        "next_url": board_query_url(
+            token, {**recent_page_base_params, "recent_page": recent_page + 1}
+        )
+        if recent_page < total_recent_pages
+        else "",
+    }
 
     return templates.TemplateResponse(
         "board.html",
@@ -157,12 +207,14 @@ def dashboard(
             "units": units,
             "unit_pagination": unit_pagination,
             "recent_changes": recent_changes,
+            "recent_pagination": recent_pagination,
             "unit_fits": UNIT_FITS,
             "selected_unit_fit": unit_fit,
             "unit_sorts": UNIT_SORTS,
             "selected_unit_sort": unit_sort_key,
             "unit_views": UNIT_VIEWS,
             "selected_unit_view": unit_view_key,
+            "selected_apartment_name": apartment_name,
             "email_test": email_test,
             "email_error": email_error,
             "heartbeat": heartbeat,
