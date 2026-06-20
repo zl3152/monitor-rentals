@@ -102,11 +102,12 @@ def dashboard(
     require_board(token)
     apartment_name = apartment_name.strip()
     sources = db.query(TrackedSource).order_by(TrackedSource.created_at.desc()).all()
+    apartment_names = sorted({source.name for source in sources if source.name})
     unit_view_key = unit_view if unit_view in UNIT_VIEWS else "active"
     unit_query = db.query(DetectedUnit).filter(DetectedUnit.is_available.is_(True))
     if apartment_name:
         unit_query = unit_query.join(TrackedSource).filter(
-            TrackedSource.name.ilike(f"%{apartment_name}%")
+            TrackedSource.name == apartment_name
         )
     if unit_view_key == "dismissed":
         unit_query = unit_query.filter(DetectedUnit.dismissed_at.is_not(None))
@@ -159,7 +160,7 @@ def dashboard(
         .filter(or_(UnitChange.unit_id.is_(None), DetectedUnit.dismissed_at.is_(None)))
     )
     if apartment_name:
-        recent_query = recent_query.filter(TrackedSource.name.ilike(f"%{apartment_name}%"))
+        recent_query = recent_query.filter(TrackedSource.name == apartment_name)
     total_recent_changes = recent_query.count()
     total_recent_pages = max(1, ceil(total_recent_changes / ITEMS_PER_PAGE))
     recent_page = min(max(recent_page, 1), total_recent_pages)
@@ -204,6 +205,7 @@ def dashboard(
             "request": request,
             "token": token,
             "sources": sources,
+            "apartment_names": apartment_names,
             "units": units,
             "unit_pagination": unit_pagination,
             "recent_changes": recent_changes,

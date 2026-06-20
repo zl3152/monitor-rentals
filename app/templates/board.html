@@ -110,7 +110,12 @@
   <form class="filters" method="get">
     <label>
       Apartment
-      <input name="apartment_name" value="{{ selected_apartment_name }}" placeholder="Lume, Anton, Vasara">
+      <select name="apartment_name">
+        <option value="">All apartments</option>
+        {% for apartment in apartment_names %}
+          <option value="{{ apartment }}" {% if selected_apartment_name == apartment %}selected{% endif %}>{{ apartment }}</option>
+        {% endfor %}
+      </select>
     </label>
     <label>
       View
