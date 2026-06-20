@@ -20,17 +20,22 @@ def build_heartbeat_summary(db: Session) -> dict[str, object]:
         .filter(TrackedSource.is_active.is_(True))
         .count(),
         "available_units": db.query(DetectedUnit)
-        .filter(DetectedUnit.is_available.is_(True))
+        .filter(
+            DetectedUnit.is_available.is_(True),
+            DetectedUnit.dismissed_at.is_(None),
+        )
         .count(),
         "great_fit_units": db.query(DetectedUnit)
         .filter(
             DetectedUnit.is_available.is_(True),
+            DetectedUnit.dismissed_at.is_(None),
             DetectedUnit.fit_label == "Great fit",
         )
         .count(),
         "possible_fit_units": db.query(DetectedUnit)
         .filter(
             DetectedUnit.is_available.is_(True),
+            DetectedUnit.dismissed_at.is_(None),
             DetectedUnit.fit_label == "Possible fit",
         )
         .count(),

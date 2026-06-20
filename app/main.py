@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import asc, desc
+from sqlalchemy import asc, desc, or_
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
@@ -56,6 +56,11 @@ UNIT_SORTS = {
     "rent_desc": ("Rent high to low", desc(DetectedUnit.rent)),
     "available": ("Availability", asc(DetectedUnit.available_date)),
 }
+UNIT_VIEWS = {
+    "active": "Active units",
+    "dismissed": "Dismissed units",
+    "all": "All units",
+}
 
 
 def format_pt(value: datetime | None) -> str:
@@ -91,6 +96,7 @@ def dashboard(
     fit: str = "",
     unit_fit: str = "",
     unit_sort: str = "newest",
+    unit_view: str = "active",
     email_test: str = "",
     email_error: str = "",
     heartbeat: str = "",
@@ -105,13 +111,20 @@ def dashboard(
         query = query.filter(Property.fit_label == fit)
     properties = query.order_by(Property.created_at.desc()).all()
     sources = db.query(TrackedSource).order_by(TrackedSource.created_at.desc()).all()
+    unit_view_key = unit_view if unit_view in UNIT_VIEWS else "active"
     unit_query = db.query(DetectedUnit).filter(DetectedUnit.is_available.is_(True))
+    if unit_view_key == "dismissed":
+        unit_query = unit_query.filter(DetectedUnit.dismissed_at.is_not(None))
+    elif unit_view_key == "active":
+        unit_query = unit_query.filter(DetectedUnit.dismissed_at.is_(None))
     if unit_fit:
         unit_query = unit_query.filter(DetectedUnit.fit_label == unit_fit)
     unit_sort_key = unit_sort if unit_sort in UNIT_SORTS else "newest"
     units = unit_query.order_by(UNIT_SORTS[unit_sort_key][1]).all()
     recent_changes = (
         db.query(UnitChange)
+        .outerjoin(DetectedUnit, UnitChange.unit_id == DetectedUnit.id)
+        .filter(or_(UnitChange.unit_id.is_(None), DetectedUnit.dismissed_at.is_(None)))
         .order_by(UnitChange.detected_at.desc())
         .limit(50)
         .all()
@@ -133,6 +146,8 @@ def dashboard(
             "selected_unit_fit": unit_fit,
             "unit_sorts": UNIT_SORTS,
             "selected_unit_sort": unit_sort_key,
+            "unit_views": UNIT_VIEWS,
+            "selected_unit_view": unit_view_key,
             "email_test": email_test,
             "email_error": email_error,
             "heartbeat": heartbeat,
@@ -169,6 +184,36 @@ def heartbeat_email(token: str, db: Session = Depends(get_db)):
             url=board_url(token, f"?heartbeat=failed&heartbeat_error={error}"),
             status_code=303,
         )
+
+
+@app.post("/board/{token}/units/{unit_id}/dismiss", response_class=HTMLResponse)
+def dismiss_unit(
+    token: str,
+    unit_id: int,
+    db: Session = Depends(get_db),
+):
+    require_board(token)
+    unit = db.get(DetectedUnit, unit_id)
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    unit.dismissed_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse(url=board_url(token), status_code=303)
+
+
+@app.post("/board/{token}/units/{unit_id}/restore", response_class=HTMLResponse)
+def restore_unit(
+    token: str,
+    unit_id: int,
+    db: Session = Depends(get_db),
+):
+    require_board(token)
+    unit = db.get(DetectedUnit, unit_id)
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+    unit.dismissed_at = None
+    db.commit()
+    return RedirectResponse(url=board_url(token, "?unit_view=dismissed"), status_code=303)
 
 
 @app.get("/board/{token}/properties/new", response_class=HTMLResponse)
@@ -282,6 +327,21 @@ def update_property(
     prop.notes = notes.strip()
     prop.fit_label = calculate_fit_label(prop)
 
+    db.commit()
+    return RedirectResponse(url=board_url(token), status_code=303)
+
+
+@app.post("/board/{token}/properties/{property_id}/delete", response_class=HTMLResponse)
+def delete_property(
+    token: str,
+    property_id: int,
+    db: Session = Depends(get_db),
+):
+    require_board(token)
+    prop = db.get(Property, property_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    db.delete(prop)
     db.commit()
     return RedirectResponse(url=board_url(token), status_code=303)
 

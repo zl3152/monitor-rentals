@@ -106,6 +106,14 @@
 <section class="panel toolbar">
   <form class="filters" method="get">
     <label>
+      View
+      <select name="unit_view">
+        {% for value, label in unit_views.items() %}
+          <option value="{{ value }}" {% if selected_unit_view == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
       Fit
       <select name="unit_fit">
         <option value="">All fits</option>
@@ -123,7 +131,7 @@
       </select>
     </label>
     <button class="button secondary" type="submit">Apply</button>
-    {% if selected_unit_fit or selected_unit_sort != "newest" %}
+    {% if selected_unit_fit or selected_unit_sort != "newest" or selected_unit_view != "active" %}
       <a class="button secondary" href="/board/{{ token }}">Reset</a>
     {% endif %}
   </form>
@@ -140,6 +148,7 @@
           <th>Bed/Bath</th>
           <th>Available</th>
           <th>Fit</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -148,6 +157,9 @@
             <td>
               <div class="name">{{ unit.floor_plan or unit.unit_name or "Unnamed unit" }}</div>
               <div class="meta">{{ unit.source.name or "Source" }}{% if unit.unit_name %} | {{ unit.unit_name }}{% endif %}</div>
+              {% if unit.dismissed_at %}
+                <div class="meta">Dismissed {{ format_pt(unit.dismissed_at) }}</div>
+              {% endif %}
               {% if unit.unit_url %}<div><a href="{{ unit.unit_url }}" target="_blank" rel="noreferrer">Open unit</a></div>{% endif %}
             </td>
             <td>
@@ -168,6 +180,17 @@
             <td>
               {% set fit_class = "good" if unit.fit_label == "Great fit" else "warn" if unit.fit_label in ["Possible fit", "Needs review"] else "bad" %}
               <span class="badge {{ fit_class }}">{{ unit.fit_label }}</span>
+            </td>
+            <td>
+              {% if unit.dismissed_at %}
+                <form method="post" action="/board/{{ token }}/units/{{ unit.id }}/restore" data-pending-label="Restoring...">
+                  <button class="button secondary" type="submit">Restore</button>
+                </form>
+              {% else %}
+                <form method="post" action="/board/{{ token }}/units/{{ unit.id }}/dismiss" data-pending-label="Dismissing..." data-confirm="Hide this unit from the active board and future change emails?">
+                  <button class="button secondary danger" type="submit">Dismiss</button>
+                </form>
+              {% endif %}
             </td>
           </tr>
         {% endfor %}
@@ -295,7 +318,14 @@
               {% set fit_class = "good" if property.fit_label == "Great fit" else "warn" if property.fit_label in ["Possible fit", "Needs review"] else "bad" %}
               <span class="badge {{ fit_class }}">{{ property.fit_label }}</span>
             </td>
-            <td><a href="/board/{{ token }}/properties/{{ property.id }}/edit">Edit</a></td>
+            <td>
+              <div class="stack">
+                <a href="/board/{{ token }}/properties/{{ property.id }}/edit">Edit</a>
+                <form method="post" action="/board/{{ token }}/properties/{{ property.id }}/delete" data-pending-label="Removing..." data-confirm="Remove this manual property from the board?">
+                  <button class="link-button danger" type="submit">Remove</button>
+                </form>
+              </div>
+            </td>
           </tr>
         {% endfor %}
       </tbody>

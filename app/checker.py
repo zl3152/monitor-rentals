@@ -54,7 +54,7 @@ def check_source(db: Session, source: TrackedSource) -> int:
                     f"New available unit detected: {_unit_summary(parsed)}",
                 )
             )
-        else:
+        elif not unit.dismissed_at:
             changes.extend(_detect_unit_changes(db, source, unit, parsed))
 
         _apply_parsed_unit(unit, parsed, source, now)
@@ -62,17 +62,18 @@ def check_source(db: Session, source: TrackedSource) -> int:
     existing_units = db.query(DetectedUnit).filter(DetectedUnit.source_id == source.id).all()
     for unit in existing_units:
         if unit.external_id not in seen_external_ids and unit.is_available:
-            changes.append(
-                _record_change(
-                    db,
-                    source,
-                    unit,
-                    "unavailable",
-                    "available",
-                    "unavailable",
-                    f"{unit.floor_plan or unit.unit_name} is no longer listed as available.",
+            if not unit.dismissed_at:
+                changes.append(
+                    _record_change(
+                        db,
+                        source,
+                        unit,
+                        "unavailable",
+                        "available",
+                        "unavailable",
+                        f"{unit.floor_plan or unit.unit_name} is no longer listed as available.",
+                    )
                 )
-            )
             unit.is_available = False
 
     source.last_checked_at = now

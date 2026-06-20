@@ -73,6 +73,7 @@ class DetectedUnit(Base):
     available_date: Mapped[str] = mapped_column(String(80), default="")
     unit_url: Mapped[str] = mapped_column(Text, default="")
     fit_label: Mapped[str] = mapped_column(String(40), default="Needs review")
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)

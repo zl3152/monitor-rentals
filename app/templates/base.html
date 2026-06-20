@@ -76,6 +76,35 @@
         color: var(--accent-dark);
       }
 
+      .button.danger {
+        border-color: #fca5a5;
+        color: var(--bad);
+      }
+
+      .button.danger:hover {
+        background: #fef2f2;
+        text-decoration: none;
+      }
+
+      .link-button {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--accent-dark);
+        cursor: pointer;
+        font: inherit;
+        padding: 0;
+        text-align: left;
+      }
+
+      .link-button:hover {
+        text-decoration: underline;
+      }
+
+      .link-button.danger {
+        color: var(--bad);
+      }
+
       .button[disabled] {
         cursor: wait;
         opacity: 0.72;
@@ -270,7 +299,11 @@
     </main>
     <script>
       document.querySelectorAll("form[data-pending-label]").forEach((form) => {
-        form.addEventListener("submit", () => {
+        form.addEventListener("submit", (event) => {
+          if (form.dataset.confirm && !confirm(form.dataset.confirm)) {
+            event.preventDefault();
+            return;
+          }
           const button = form.querySelector("button[type='submit']");
           if (!button) return;
           button.textContent = form.dataset.pendingLabel;
